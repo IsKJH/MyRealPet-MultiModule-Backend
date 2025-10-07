@@ -54,6 +54,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
+          command_timeout: 10m
           script: |
             # Stop existing apps
             pkill -f 'account.*jar' || true
@@ -75,6 +76,9 @@ jobs:
               -DCORS_ALLOWED_ORIGINS=* \
               account-api*.jar > account.log 2>&1 &
 
+            # Detach process from shell
+            disown
+
             # Start Pet-Walk API
             nohup java -jar \
               -Dspring.profiles.active=prod \
@@ -83,4 +87,11 @@ jobs:
               -DPET_WALK_DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
               pet-walk-api*.jar > pet-walk.log 2>&1 &
 
+            # Detach process from shell
+            disown
+
+            # Wait a moment for processes to start
+            sleep 2
+
             echo "Deployment completed!"
+            exit 0
