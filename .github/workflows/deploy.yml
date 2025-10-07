@@ -48,41 +48,40 @@ jobs:
           target: "/home/ubuntu/app"
           strip_components: 3
 
+      - name: Copy deployment script to EC2
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          source: "deploy.sh"
+          target: "/home/ubuntu/app"
+
       - name: Execute deployment script on EC2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
-          command_timeout: 10m
-          script_stop: true
+          command_timeout: 30s
           script: |
-            # Stop existing apps
-            pkill -f 'account.*jar' || true
-            pkill -f 'pet-walk.*jar' || true
+            chmod +x /home/ubuntu/app/deploy.sh
 
-            # Wait for ports to be released
-            sleep 5
+            # Set environment variables and run deployment script in background
+            # Using setsid to completely detach from SSH session
+            export ACCOUNT_DB_URL="jdbc:mysql://${{ secrets.DB_ENDPOINT }}:3306/myrealpet?serverTimezone=Asia/Seoul"
+            export ACCOUNT_DB_USERNAME="admin"
+            export ACCOUNT_DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+            export REDIS_HOST="localhost"
+            export REDIS_PORT="6379"
+            export REDIS_PASSWORD=""
+            export CORS_ALLOWED_ORIGINS="*"
+            export PET_WALK_DB_URL="jdbc:mysql://${{ secrets.DB_ENDPOINT }}:3306/myrealpet?serverTimezone=Asia/Seoul"
+            export PET_WALK_DB_USERNAME="admin"
+            export PET_WALK_DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
 
-            # Start Account API in background
-            cd /home/ubuntu/app
-            (nohup java -jar \
-              -Dspring.profiles.active=prod \
-              -DACCOUNT_DB_URL=jdbc:mysql://${{ secrets.DB_ENDPOINT }}:3306/myrealpet?serverTimezone=Asia/Seoul \
-              -DACCOUNT_DB_USERNAME=admin \
-              -DACCOUNT_DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-              -DREDIS_HOST=localhost \
-              -DREDIS_PORT=6379 \
-              -DREDIS_PASSWORD= \
-              -DCORS_ALLOWED_ORIGINS=* \
-              account-api*.jar > account.log 2>&1 &) && sleep 1
+            # Run deployment script in background, completely detached from SSH
+            setsid bash /home/ubuntu/app/deploy.sh > /dev/null 2>&1 < /dev/null &
 
-            # Start Pet-Walk API in background
-            (nohup java -jar \
-              -Dspring.profiles.active=prod \
-              -DPET_WALK_DB_URL=jdbc:mysql://${{ secrets.DB_ENDPOINT }}:3306/myrealpet?serverTimezone=Asia/Seoul \
-              -DPET_WALK_DB_USERNAME=admin \
-              -DPET_WALK_DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-              pet-walk-api*.jar > pet-walk.log 2>&1 &) && sleep 1
-
-            echo "Deployment completed!"
+            echo "Deployment script started in background"
+            echo "Check logs at: /home/ubuntu/app/logs/deploy.log"
